@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   addMonths,
@@ -19,8 +19,8 @@ import {
   getGlossary,
   getPlaneHealth,
   getPlanePrediction,
-  getPlaneRecommendations,
   getPlaneTrend,
+  runPlanner,
   getWeather
 } from "@/lib/adapters/api-client";
 import { airportFromLabel } from "@/lib/airports";
@@ -34,7 +34,7 @@ import { GlossarySection } from "@/components/ui/glossary-section";
 import { HealthMeter } from "@/components/ui/health-meter";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { GLOSSARY_FALLBACK } from "@/lib/glossary";
-import { ForecastCurvePoint } from "@/lib/contracts/schemas";
+import { ForecastCurvePoint, PlannerDayResult, PlannerRequest } from "@/lib/contracts/schemas";
 import { formatPct } from "@/lib/utils";
 
 function monthString(date: Date) {
@@ -106,6 +106,15 @@ export function PlaneDashboard({ planeId }: Props) {
   const [month, setMonth] = useState(monthString(new Date()));
   const [trendWindow, setTrendWindow] = useState<"30d" | "90d" | "1y" | "full">("90d");
   const [selectedRecommendationDate, setSelectedRecommendationDate] = useState<string | null>(null);
+  const [plannerControls, setPlannerControls] = useState({
+    durationMin: 45,
+    routeDistanceKm: 90,
+    reserveSocPct: 30,
+    targetSocCapPct: 92,
+    departureWindowStart: "08:00",
+    departureWindowEnd: "10:30",
+    sortiesPerDay: 1
+  });
   const options = useMemo(() => monthOptions(), []);
 
   const healthQuery = useQuery({
@@ -122,11 +131,6 @@ export function PlaneDashboard({ planeId }: Props) {
   const predictionQuery = useQuery({
     queryKey: ["plane-prediction", planeId],
     queryFn: () => getPlanePrediction(planeId),
-    placeholderData: keepPreviousData
-  });
-  const recsQuery = useQuery({
-    queryKey: ["plane-recs", planeId, month],
-    queryFn: () => getPlaneRecommendations(planeId, month),
     placeholderData: keepPreviousData
   });
   const glossaryQuery = useQuery({
@@ -146,6 +150,40 @@ export function PlaneDashboard({ planeId }: Props) {
   const airportCode =
     healthQuery.data?.health.lastFlight.departureAirport?.slice(0, 4) ?? "CYKF";
   const { start, end } = monthRange(month);
+  const deferredPlannerControls = useDeferredValue(plannerControls);
+  const plannerRequest = useMemo<PlannerRequest | null>(() => {
+    if (!healthQuery.data) {
+      return null;
+    }
+    return {
+      mode: "single_plane",
+      planeIds: [planeId],
+      startDate: start,
+      endDate: end,
+      baseAirport: airportCode,
+      missionTemplate: {
+        durationMin: deferredPlannerControls.durationMin,
+        routeDistanceKm: deferredPlannerControls.routeDistanceKm,
+        reserveSocPct: deferredPlannerControls.reserveSocPct,
+        departureWindowStart: deferredPlannerControls.departureWindowStart,
+        departureWindowEnd: deferredPlannerControls.departureWindowEnd
+      },
+      chargePolicy: {
+        targetSocCapPct: deferredPlannerControls.targetSocCapPct,
+        latestChargeFinishLeadHours: 1.5
+      },
+      opsDemand: {
+        sortiesPerDay: deferredPlannerControls.sortiesPerDay
+      },
+      weatherMode: "forecast"
+    };
+  }, [airportCode, deferredPlannerControls, end, healthQuery.data, planeId, start]);
+  const plannerQuery = useQuery({
+    queryKey: ["plane-planner", plannerRequest],
+    queryFn: () => runPlanner(plannerRequest!),
+    enabled: plannerRequest !== null,
+    placeholderData: keepPreviousData
+  });
   const weatherQuery = useQuery({
     queryKey: ["weather", airportCode, start, end],
     queryFn: () => getWeather(airportCode, start, end),
@@ -159,9 +197,19 @@ export function PlaneDashboard({ planeId }: Props) {
     enabled: Boolean(airportCode),
     placeholderData: keepPreviousData
   });
+  const plannerDays = useMemo(
+    () => plannerQuery.data?.planner.days ?? [],
+    [plannerQuery.data?.planner.days]
+  );
   const recommendationDays = useMemo(
-    () => recsQuery.data?.recommendations.calendarDays ?? [],
-    [recsQuery.data?.recommendations.calendarDays]
+    () =>
+      plannerDays.map((day) => ({
+        date: day.date,
+        score: day.score,
+        confidenceTier: day.confidenceTier,
+        weatherSummary: day.weatherSummary
+      })),
+    [plannerDays]
   );
   const nextBestDay = useMemo(() => {
     if (!selectedRecommendationDate) {
@@ -184,7 +232,7 @@ export function PlaneDashboard({ planeId }: Props) {
     });
   }, [month, recommendationDays]);
 
-  if (!healthQuery.data || !trendQuery.data || !predictionQuery.data || !recsQuery.data) {
+  if (!healthQuery.data || !trendQuery.data || !predictionQuery.data || !plannerQuery.data) {
     return <div className="text-sm text-muted">Loading plane dashboard...</div>;
   }
 
@@ -192,7 +240,7 @@ export function PlaneDashboard({ planeId }: Props) {
     (healthQuery.isError && !healthQuery.data) ||
     (trendQuery.isError && !trendQuery.data) ||
     (predictionQuery.isError && !predictionQuery.data) ||
-    (recsQuery.isError && !recsQuery.data)
+    (plannerQuery.isError && !plannerQuery.data)
   ) {
     return <div className="text-sm text-rose-600">Unable to load plane data.</div>;
   }
@@ -205,15 +253,36 @@ export function PlaneDashboard({ planeId }: Props) {
   );
   const { health } = healthQuery.data;
   const { prediction } = predictionQuery.data;
-  const recommendations = recsQuery.data.recommendations;
+  const planner = plannerQuery.data.planner;
   const departure = airportFromLabel(health.lastFlight.departureAirport);
   const destination = airportFromLabel(health.lastFlight.destinationAirport);
   const chargingEstimate = chargingQuery.data?.estimate;
   const trendBusy = trendQuery.isFetching;
-  const recommendationBusy = recsQuery.isFetching;
+  const recommendationBusy = plannerQuery.isFetching;
   const weatherBusy = weatherQuery.isFetching || chargingQuery.isFetching;
   const sessionCost = formatFixedValue(chargingEstimate?.estimatedSessionCostUsd, 2);
   const unitRate = formatFixedValue(chargingEstimate?.costPerKwhUsd, 3);
+  const selectedPlannerDay = planner.days.find(
+    (day) => day.date === selectedRecommendationDate
+  );
+  const plannerBreakdownByDate = Object.fromEntries(
+    planner.days.map((day) => [
+      day.date,
+      {
+        weather: day.breakdown.weather,
+        thermal: day.breakdown.thermal,
+        stress: day.breakdown.wear,
+        charging: day.breakdown.charging
+      }
+    ])
+  );
+  const plannerChargePlan = planner.chargeWindows.map((window) => ({
+    date: window.date,
+    targetSoc: window.targetSocPct,
+    chargeWindowStart: window.chargeWindowStart ?? "",
+    chargeWindowEnd: window.chargeWindowEnd ?? "",
+    rationale: window.rationale
+  }));
 
   return (
     <main className="space-y-6">
@@ -485,15 +554,126 @@ export function PlaneDashboard({ planeId }: Props) {
             </label>
           </div>
 
+          <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-3">
+            <label className="text-sm text-slate-700">
+              Planned Duration (min)
+              <input
+                type="number"
+                min={10}
+                max={300}
+                value={plannerControls.durationMin}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    durationMin: Number(event.target.value)
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              Route Distance (km)
+              <input
+                type="number"
+                min={10}
+                max={500}
+                value={plannerControls.routeDistanceKm}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    routeDistanceKm: Number(event.target.value)
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              Reserve SOC (%)
+              <input
+                type="number"
+                min={10}
+                max={60}
+                value={plannerControls.reserveSocPct}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    reserveSocPct: Number(event.target.value)
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              SOC Cap (%)
+              <input
+                type="number"
+                min={50}
+                max={100}
+                value={plannerControls.targetSocCapPct}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    targetSocCapPct: Number(event.target.value)
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              Departure Window Start
+              <input
+                type="time"
+                value={plannerControls.departureWindowStart}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    departureWindowStart: event.target.value
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              Departure Window End
+              <input
+                type="time"
+                value={plannerControls.departureWindowEnd}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    departureWindowEnd: event.target.value
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              Flights Planned
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={plannerControls.sortiesPerDay}
+                onChange={(event) =>
+                  setPlannerControls((current) => ({
+                    ...current,
+                    sortiesPerDay: Number(event.target.value)
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              />
+            </label>
+          </div>
+
           <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
-            <span>Recommendations refresh in place when you change month.</span>
+            <span>Flight recommendations refresh in place when you change mission and charging inputs.</span>
             <span>{recommendationBusy ? "Updating..." : " "}</span>
           </div>
 
           <RecommendationCalendar
             days={recommendationDays}
-            breakdownByDate={recommendations.scoreBreakdownByDate}
-            chargePlan={recommendations.chargePlan}
+            breakdownByDate={plannerBreakdownByDate}
+            chargePlan={plannerChargePlan}
             selectedDate={selectedRecommendationDate}
             onSelectedDateChange={setSelectedRecommendationDate}
           />
@@ -501,8 +681,28 @@ export function PlaneDashboard({ planeId }: Props) {
 
         <Card className="self-start space-y-4">
           <h3 className="font-[var(--font-heading)] text-lg text-slate-900">
-            Recommendation Highlights
+            Flight Recommendation Details
           </h3>
+          {selectedPlannerDay ? (
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-3 text-sm">
+              <p className="text-muted">Selected day</p>
+              <p className="font-semibold text-slate-900">
+                {selectedPlannerDay.date} | {selectedPlannerDay.status}
+              </p>
+              <p className="text-blue-700">Score {selectedPlannerDay.score.toFixed(1)}</p>
+              <p className="mt-1 text-slate-600">{selectedPlannerDay.summary}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                SOH delta {selectedPlannerDay.expectedDeltaSoh.toFixed(3)} | Reserve{" "}
+                {selectedPlannerDay.reserveMarginPct.toFixed(1)}% | Charge target{" "}
+                {selectedPlannerDay.targetSocPct.toFixed(0)}%
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Mission draw {selectedPlannerDay.missionSocSpanPct.toFixed(1)}% SOC | Flight time{" "}
+                {selectedPlannerDay.durationMin.toFixed(0)} min | Estimated charge{" "}
+                {selectedPlannerDay.chargeDurationHr.toFixed(2)} h
+              </p>
+            </div>
+          ) : null}
           {nextBestDay ? (
             <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3 text-sm">
               <p className="text-muted">Best next day</p>
@@ -516,19 +716,36 @@ export function PlaneDashboard({ planeId }: Props) {
               <p className="text-slate-600">You are already viewing one of the final available days.</p>
             </div>
           ) : null}
-          <div className="space-y-2">
-            {recommendations.cards.map((card) => (
-              <div key={card.id} className="rounded-xl border border-stone-200 bg-white/85 p-3 text-sm">
-                <p className="font-semibold text-slate-900">{card.action}</p>
-                <p className="text-xs text-muted">Confidence {card.confidence.toFixed(2)}</p>
-                <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                  {card.why.slice(0, 2).map((line) => (
-                    <li key={line}>- {line}</li>
-                  ))}
-                </ul>
+          {selectedPlannerDay ? (
+            <div className="space-y-2">
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-sm text-slate-700">
+                {selectedPlannerDay.chargeWindowStart && selectedPlannerDay.chargeWindowEnd ? (
+                  <p>
+                    Charge between{" "}
+                    {new Date(selectedPlannerDay.chargeWindowStart).toLocaleString()} and{" "}
+                    {new Date(selectedPlannerDay.chargeWindowEnd).toLocaleString()}.
+                  </p>
+                ) : (
+                  <p>No explicit charge window is required for this day.</p>
+                )}
               </div>
-            ))}
-          </div>
+              {selectedPlannerDay.why.map((line) => (
+                <div
+                  key={line}
+                  className="rounded-xl border border-stone-200 bg-white/85 p-3 text-sm text-slate-700"
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {planner.warnings.length ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {planner.warnings.slice(0, 2).map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
         </Card>
       </section>
 

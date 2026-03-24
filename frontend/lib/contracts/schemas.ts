@@ -12,6 +12,13 @@ export const MissionGameStatusSchema = z.enum([
 ]);
 export const MissionGameModeSchema = z.enum(["single", "fleet_compare"]);
 export const PayloadLevelSchema = z.enum(["light", "medium", "heavy"]);
+export const PlannerModeSchema = z.literal("single_plane");
+export const PlannerDayStatusSchema = z.enum([
+  "recommended",
+  "watch",
+  "avoid",
+  "infeasible"
+]);
 
 export const PlaneSummarySchema = z.object({
   planeId: z.string(),
@@ -232,6 +239,146 @@ export const WeatherInputSchema = z.object({
   precipMm: z.number()
 });
 
+export const PlannerMissionTemplateSchema = z.object({
+  durationMin: z.number().min(10).max(300),
+  socSpanPct: z.number().min(5).max(95).optional(),
+  routeDistanceKm: z.number().min(10).max(500).optional(),
+  reserveSocPct: z.number().min(10).max(60),
+  departureWindowStart: z.string().regex(/^\d{2}:\d{2}$/),
+  departureWindowEnd: z.string().regex(/^\d{2}:\d{2}$/)
+});
+
+export const PlannerChargePolicySchema = z.object({
+  targetSocCapPct: z.number().min(50).max(100),
+  latestChargeFinishLeadHours: z.number().min(0).max(24)
+});
+
+export const PlannerOpsDemandSchema = z.object({
+  sortiesPerDay: z.number().int().min(1).max(12)
+});
+
+export const PlannerRequestSchema = z
+  .object({
+    mode: PlannerModeSchema,
+    planeIds: z.array(z.string()).min(1).max(1),
+    startDate: z.string(),
+    endDate: z.string(),
+    baseAirport: z.string().min(4).max(4),
+    missionTemplate: PlannerMissionTemplateSchema,
+    chargePolicy: PlannerChargePolicySchema,
+    opsDemand: PlannerOpsDemandSchema.optional(),
+    weatherMode: z.enum(["forecast", "manual"]),
+    manualWeather: WeatherInputSchema.optional()
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.weatherMode === "manual" &&
+      value.manualWeather === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["manualWeather"],
+        message: "manualWeather is required when weatherMode is manual."
+      });
+    }
+    if (value.endDate < value.startDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endDate"],
+        message: "endDate must be on or after startDate."
+      });
+    }
+    if (
+      value.missionTemplate.departureWindowEnd <=
+      value.missionTemplate.departureWindowStart
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["missionTemplate", "departureWindowEnd"],
+        message: "departureWindowEnd must be after departureWindowStart."
+      });
+    }
+  });
+
+export const PlannerDayBreakdownSchema = z.object({
+  weather: z.number(),
+  thermal: z.number(),
+  wear: z.number(),
+  charging: z.number()
+});
+
+export const PlannerDayResultSchema = z.object({
+  planeId: z.string(),
+  date: z.string(),
+  score: z.number(),
+  status: PlannerDayStatusSchema,
+  confidenceTier: ConfidenceTierSchema,
+  feasible: z.boolean(),
+  summary: z.string(),
+  weatherSummary: z.string(),
+  why: z.array(z.string()),
+  breakdown: PlannerDayBreakdownSchema,
+  expectedDeltaSoh: z.number(),
+  postFlightSocPct: z.number(),
+  reserveMarginPct: z.number(),
+  durationMin: z.number(),
+  missionSocSpanPct: z.number(),
+  chargeDurationHr: z.number(),
+  targetSocPct: z.number(),
+  sortieCount: z.number().int().min(1),
+  chargeWindowStart: z.string().nullable(),
+  chargeWindowEnd: z.string().nullable()
+});
+
+export const PlannerChargeWindowSchema = z.object({
+  planeId: z.string(),
+  date: z.string(),
+  targetSocPct: z.number(),
+  chargeWindowStart: z.string().nullable(),
+  chargeWindowEnd: z.string().nullable(),
+  rationale: z.string()
+});
+
+export const PlannerWearImpactSchema = z.object({
+  planeId: z.string(),
+  date: z.string(),
+  expectedDeltaSoh: z.number(),
+  postFlightSocPct: z.number(),
+  reserveMarginPct: z.number()
+});
+
+export const PlannerRulImpactSchema = z.object({
+  planeId: z.string(),
+  baselineReplacementDate: z.string(),
+  plannedReplacementDate: z.string(),
+  baselineRulDays: z.number(),
+  plannedRulDays: z.number(),
+  baselineRulCycles: z.number(),
+  plannedRulCycles: z.number(),
+  deltaRulDays: z.number(),
+  deltaRulCycles: z.number()
+});
+
+export const PlannerResponseSchema = z.object({
+  planner: z.object({
+    mode: PlannerModeSchema,
+    generatedAt: z.string(),
+    startDate: z.string(),
+    endDate: z.string(),
+    baseAirport: z.string(),
+    weatherMode: z.enum(["forecast", "manual"]),
+    weatherSource: z.enum(["live", "mixed", "fallback", "manual"]),
+    days: z.array(PlannerDayResultSchema),
+    recommendedDays: z.array(PlannerDayResultSchema),
+    notRecommendedDays: z.array(PlannerDayResultSchema),
+    chargeWindows: z.array(PlannerChargeWindowSchema),
+    expectedWear: z.array(PlannerWearImpactSchema),
+    rulImpact: z.array(PlannerRulImpactSchema),
+    warnings: z.array(z.string()),
+    assumptions: z.array(z.string())
+  })
+});
+
 export const MissionGameInputSchema = z.object({
   mode: MissionGameModeSchema,
   planeIds: z.array(z.string()).min(1),
@@ -368,6 +515,15 @@ export type LearnTrajectoryPoint = z.infer<typeof LearnTrajectoryPointSchema>;
 export type LearnEvaluation = z.infer<typeof LearnEvaluationSchema>;
 export type LearnBaseline = z.infer<typeof LearnBaselineSchema>;
 export type ChargingCostEstimate = z.infer<typeof ChargingCostEstimateSchema>;
+export type PlannerMissionTemplate = z.infer<typeof PlannerMissionTemplateSchema>;
+export type PlannerChargePolicy = z.infer<typeof PlannerChargePolicySchema>;
+export type PlannerOpsDemand = z.infer<typeof PlannerOpsDemandSchema>;
+export type PlannerRequest = z.infer<typeof PlannerRequestSchema>;
+export type PlannerDayBreakdown = z.infer<typeof PlannerDayBreakdownSchema>;
+export type PlannerDayResult = z.infer<typeof PlannerDayResultSchema>;
+export type PlannerChargeWindow = z.infer<typeof PlannerChargeWindowSchema>;
+export type PlannerWearImpact = z.infer<typeof PlannerWearImpactSchema>;
+export type PlannerRulImpact = z.infer<typeof PlannerRulImpactSchema>;
 export type MissionGameInput = z.infer<typeof MissionGameInputSchema>;
 export type MissionGameResult = z.infer<typeof MissionGameResultSchema>;
 export type MissionGamePlaneResult = z.infer<typeof MissionGamePlaneResultSchema>;

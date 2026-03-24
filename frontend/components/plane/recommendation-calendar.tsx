@@ -34,12 +34,11 @@ function scoreClass(score: number) {
 function rationaleFromBreakdown(breakdown: ScoreBreakdown | null) {
   if (!breakdown) return [];
   const bullets: string[] = [];
-  if (breakdown.thermal >= 75) bullets.push("Thermal profile is battery-friendly.");
-  if (breakdown.weather >= 75) bullets.push("Weather conditions are relatively stable.");
-  if (breakdown.charging < 65)
-    bullets.push("Charging timing is critical for this date.");
-  if (breakdown.stress < 70) bullets.push("Projected mission stress is elevated.");
-  if (bullets.length === 0) bullets.push("Factors are balanced with moderate risk.");
+  if (breakdown.stress < 70) bullets.push("Projected battery wear is elevated for this mission.");
+  if (breakdown.charging < 70) bullets.push("Charging timing and high-SOC dwell are critical for this date.");
+  if (breakdown.thermal < 60) bullets.push("Temperature conditions add battery stress in the wear model.");
+  if (breakdown.weather < 60) bullets.push("Weather matters here mostly because it increases modeled mission energy draw.");
+  if (bullets.length === 0) bullets.push("Battery-wear conditions are relatively manageable for this date.");
   return bullets;
 }
 

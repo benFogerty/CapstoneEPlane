@@ -30,6 +30,22 @@ function pythonInvocations(): PythonInvocation[] {
     invocations.push({ command: configured, argsPrefix: [] });
   }
 
+  const cwd = process.cwd();
+  const unixCandidates = [
+    path.join(cwd, ".venv", "bin", "python"),
+    path.join(cwd, "..", ".venv", "bin", "python")
+  ];
+  const windowsCandidates = [
+    path.join(cwd, ".venv", "Scripts", "python.exe"),
+    path.join(cwd, "..", ".venv", "Scripts", "python.exe")
+  ];
+
+  for (const candidate of [...unixCandidates, ...windowsCandidates]) {
+    if (existsSync(candidate)) {
+      invocations.push({ command: candidate, argsPrefix: [] });
+    }
+  }
+
   if (process.platform === "win32") {
     invocations.push({ command: "python", argsPrefix: [] });
     invocations.push({ command: "py", argsPrefix: ["-3"] });

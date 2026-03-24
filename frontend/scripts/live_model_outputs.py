@@ -477,6 +477,314 @@ def _month_dates(month_value: str) -> list[str]:
     ]
 
 
+def _daterange(start_date: str, end_date: str) -> list[str]:
+    start = datetime.fromisoformat(f"{start_date}T00:00:00+00:00").date()
+    end = datetime.fromisoformat(f"{end_date}T00:00:00+00:00").date()
+    dates: list[str] = []
+    cursor = start
+    while cursor <= end:
+        dates.append(cursor.isoformat())
+        cursor += timedelta(days=1)
+    return dates
+
+
+def _time_on_date(date_iso: str, hhmm: str) -> datetime:
+    hour, minute = [int(part) for part in hhmm.split(":")]
+    return datetime.fromisoformat(f"{date_iso}T00:00:00+00:00") + timedelta(
+        hours=hour,
+        minutes=minute,
+    )
+
+
+def _resolve_sortie_count(ops_demand: dict[str, Any] | None) -> int:
+    requested = int(_safe_float((ops_demand or {}).get("sortiesPerDay"), 1))
+    return max(1, requested)
+
+
+def _resolve_duration_hr(
+    profile: PlaneProfile,
+    mission_template: dict[str, Any],
+    sortie_count: int,
+) -> float:
+    duration_min = _safe_float(
+        mission_template.get("durationMin"),
+        profile.mission_duration_hr * 60.0,
+    )
+    duration_hr = _clip(duration_min / 60.0, 0.2, 4.0)
+    return duration_hr * max(1, sortie_count)
+
+
+def _resolve_mission_soc_span_pct(
+    profile: PlaneProfile,
+    mission_template: dict[str, Any],
+    sortie_count: int,
+) -> float:
+    explicit_soc = mission_template.get("socSpanPct")
+    if explicit_soc is not None:
+        return _clip(
+            _safe_float(explicit_soc, profile.mission_soc_span_pct) * max(1, sortie_count),
+            8.0,
+            92.0,
+        )
+
+    duration_min = _safe_float(
+        mission_template.get("durationMin"),
+        profile.mission_duration_hr * 60.0,
+    )
+    baseline_duration_min = max(profile.mission_duration_hr * 60.0, 20.0)
+    duration_scaled = profile.mission_soc_span_pct * duration_min / baseline_duration_min
+
+    route_distance_km = mission_template.get("routeDistanceKm")
+    if route_distance_km is not None:
+        route_scaled = _safe_float(route_distance_km, duration_min * 2.1) / 3.0
+        base_span = max(duration_scaled, route_scaled)
+    else:
+        base_span = duration_scaled
+
+    base_span = _clip(base_span, 8.0, 68.0)
+    return _clip(base_span * max(1, sortie_count), 8.0, 92.0)
+
+
+def _build_scenario_day(
+    plane_id: str,
+    date_iso: str,
+    profile: PlaneProfile,
+    model_payload: dict[str, Any],
+    mission_template: dict[str, Any],
+    charge_policy: dict[str, Any],
+    ops_demand: dict[str, Any] | None,
+    weather_day: dict[str, Any] | None,
+) -> dict[str, Any]:
+    sortie_count = _resolve_sortie_count(ops_demand)
+    mission_duration_hr = _resolve_duration_hr(profile, mission_template, sortie_count)
+    mission_soc_span_pct = _resolve_mission_soc_span_pct(profile, mission_template, sortie_count)
+    reserve_soc_pct = _clip(_safe_float(mission_template.get("reserveSocPct"), profile.reserve_soc_pct), 10.0, 60.0)
+    target_soc_cap = _clip(
+        _safe_float(charge_policy.get("targetSocCapPct"), profile.charge_target_soc_pct),
+        50.0,
+        100.0,
+    )
+    latest_charge_finish_lead_hours = _clip(
+        _safe_float(charge_policy.get("latestChargeFinishLeadHours"), profile.charge_to_flight_delay_hr),
+        0.0,
+        24.0,
+    )
+    ambient_temp_min_c = _clip(
+        _safe_float((weather_day or {}).get("tempMinC"), profile.avg_temp_c - 4.0),
+        -25.0,
+        45.0,
+    )
+    ambient_temp_max_c = _clip(
+        _safe_float((weather_day or {}).get("tempMaxC"), profile.max_temp_c),
+        ambient_temp_min_c,
+        55.0,
+    )
+    ambient_temp_avg_c = (ambient_temp_min_c + ambient_temp_max_c) / 2.0
+    wind_kph = max(0.0, _safe_float((weather_day or {}).get("windKph"), 12.0))
+    precip_mm = max(0.0, _safe_float((weather_day or {}).get("precipMm"), 0.0))
+    departure_window_start = str(mission_template.get("departureWindowStart", "08:00"))
+    departure_window_end = str(mission_template.get("departureWindowEnd", "10:00"))
+
+    window_start = _time_on_date(date_iso, departure_window_start)
+    window_end = _time_on_date(date_iso, departure_window_end)
+    flight_time = max(window_end, window_start + timedelta(minutes=15))
+    state = _base_state(profile)
+    target_soc = min(target_soc_cap, 98.0)
+    thermal_charge_rate_factor = _clip(
+        1.0
+        - max(0.0, 8.0 - ambient_temp_avg_c) * 0.018
+        - max(0.0, ambient_temp_avg_c - 30.0) * 0.015,
+        0.68,
+        1.02,
+    )
+    effective_charge_rate_pct_per_hr = max(
+        profile.charge_rate_pct_per_hr * thermal_charge_rate_factor,
+        5.0,
+    )
+    weather_adjusted_soc_span_pct = mission_soc_span_pct * (
+        1.0 + max(0.0, wind_kph - 18.0) * 0.0035 + precip_mm * 0.004
+    )
+    weather_adjusted_soc_span_pct = _clip(weather_adjusted_soc_span_pct, 8.0, 95.0)
+    minimum_required_target = weather_adjusted_soc_span_pct + reserve_soc_pct + 2.0
+    preflight_soc_pct = max(state.current_soc, target_soc)
+    charge_needed = max(0.0, target_soc - state.current_soc)
+    charge_duration_hr = charge_needed / effective_charge_rate_pct_per_hr
+    charge_end = flight_time - timedelta(hours=latest_charge_finish_lead_hours)
+    charge_start = charge_end - timedelta(hours=charge_duration_hr)
+    preflight_idle_hours = max((flight_time - profile.initial_time).total_seconds() / 3600.0, 0.0)
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    date_is_past = date_iso < today_iso
+    reserve_target_feasible = preflight_soc_pct >= minimum_required_target
+    charge_window_feasible = charge_needed <= 0.5 or (
+        charge_end > profile.initial_time and charge_start >= profile.initial_time
+    )
+
+    charge_delta = 0.0
+    charge_window_start_iso: str | None = None
+    charge_window_end_iso: str | None = None
+    if charge_needed > 0.5:
+        charge_window_start_iso = charge_start.replace(microsecond=0).isoformat()
+        charge_window_end_iso = charge_end.replace(microsecond=0).isoformat()
+
+    if charge_needed > 0.5 and charge_window_feasible:
+        charge_event = _simulate_event(
+            model_payload,
+            state,
+            profile,
+            event_type="charge",
+            delta_soc_pct=charge_needed,
+            duration_hr=charge_duration_hr,
+            event_time=charge_start,
+            avg_temp_c=ambient_temp_avg_c + 1.0,
+            max_temp_c=min(ambient_temp_max_c + 2.0, 58.0),
+            charge_delay_hr=0.0,
+        )
+        charge_delta = float(charge_event["predDeltaSoh"])
+
+    # If the aircraft is already full or nearly full, waiting until a later day
+    # should look worse than flying sooner, especially in warmer conditions.
+    high_soc_dwell_hours = (
+        preflight_idle_hours
+        if charge_needed <= 0.5
+        else max(latest_charge_finish_lead_hours, 0.0)
+    )
+    dwell_soc_pct = state.current_soc if charge_needed <= 0.5 else target_soc
+    dwell_soc_factor = max(dwell_soc_pct - 80.0, 0.0) / 20.0
+    dwell_temp_factor = (
+        1.0
+        + max(0.0, ambient_temp_avg_c - 20.0) * 0.04
+        + max(0.0, ambient_temp_max_c - 30.0) * 0.06
+    )
+    calendar_dwell_delta = -min(
+        high_soc_dwell_hours * dwell_soc_factor * dwell_temp_factor * 0.00022,
+        0.03,
+    )
+    flight_event = _simulate_event(
+        model_payload,
+        state,
+        profile,
+        event_type="mission",
+        delta_soc_pct=weather_adjusted_soc_span_pct,
+        duration_hr=mission_duration_hr,
+        event_time=max(flight_time, state.current_time + timedelta(hours=0.25)),
+        avg_temp_c=ambient_temp_avg_c,
+        max_temp_c=ambient_temp_max_c,
+        charge_delay_hr=latest_charge_finish_lead_hours,
+    )
+
+    total_delta = charge_delta + calendar_dwell_delta + float(flight_event["predDeltaSoh"])
+    reserve_margin_pct = state.current_soc - reserve_soc_pct
+    raw_penalty = (
+        abs(total_delta) * 220.0
+        + max(0.0, 0.0 - reserve_margin_pct) * 8.0
+        + max(0.0, target_soc - 85.0) * 1.35
+        + max(0.0, charge_duration_hr - 1.5) * 8.0
+        + max(0.0, wind_kph - 22.0) * 0.8
+        + precip_mm * 2.2
+        + abs(calendar_dwell_delta) * 320.0
+        + (25.0 if not charge_window_feasible and charge_needed > 0.5 else 0.0)
+        + (40.0 if not reserve_target_feasible else 0.0)
+        + (30.0 if date_is_past else 0.0)
+    )
+    model_stress_score = _clip(100.0 - raw_penalty, 5.0, 100.0)
+    charging_penalty = (
+        max(0.0, target_soc - 85.0) * 1.8
+        + max(0.0, charge_duration_hr - 1.5) * 18.0
+        + max(0.0, 8.0 - ambient_temp_avg_c) * 0.8
+        + max(0.0, ambient_temp_avg_c - 30.0) * 0.7
+        + abs(calendar_dwell_delta) * 260.0
+        + (30.0 if not charge_window_feasible and charge_needed > 0.5 else 0.0)
+        + (35.0 if not reserve_target_feasible else 0.0)
+    )
+    charging_score = _clip(100.0 - charging_penalty, 5.0, 100.0)
+
+    if date_is_past:
+        summary = "Date is in the past for advisory planning."
+    elif not reserve_target_feasible:
+        summary = "Target SOC cap is too low to preserve mission reserve."
+    elif not charge_window_feasible and charge_needed > 0.5:
+        summary = "Charge window cannot satisfy this mission before departure."
+    elif reserve_margin_pct < 0:
+        summary = "Reserve SOC would be violated for this mission profile."
+    elif calendar_dwell_delta <= -0.012:
+        summary = "Waiting at high SOC before departure adds measurable storage wear."
+    elif total_delta <= -0.18:
+        summary = "Model projects a heavier degradation hit for this operating window."
+    else:
+        summary = "Model projects a manageable degradation profile for this mission."
+
+    return {
+        "planeId": plane_id,
+        "date": date_iso,
+        "sortieCount": int(sortie_count),
+        "durationMin": float(mission_duration_hr * 60.0),
+        "missionSocSpanPct": float(weather_adjusted_soc_span_pct),
+        "reserveSocPct": float(reserve_soc_pct),
+        "targetSoc": float(target_soc),
+        "chargeDurationHr": float(max(charge_duration_hr, 0.0)),
+        "chargeWindowStart": charge_window_start_iso,
+        "chargeWindowEnd": charge_window_end_iso,
+        "expectedDeltaSoh": float(total_delta),
+        "postFlightSocPct": float(state.current_soc),
+        "reserveMarginPct": float(reserve_margin_pct),
+        "modelStressScore": float(model_stress_score),
+        "chargingScore": float(charging_score),
+        "feasible": bool(
+            (not date_is_past)
+            and reserve_target_feasible
+            and charge_window_feasible
+            and reserve_margin_pct >= 0.0
+        ),
+        "summary": summary,
+    }
+
+
+def _build_scenario_planner_payload(request_payload: dict[str, Any]) -> dict[str, Any]:
+    plane_id = str(request_payload["planeId"])
+    start_date = str(request_payload["startDate"])
+    end_date = str(request_payload["endDate"])
+    mission_template = dict(request_payload.get("missionTemplate", {}))
+    charge_policy = dict(request_payload.get("chargePolicy", {}))
+    ops_demand = request_payload.get("opsDemand")
+    weather_days = request_payload.get("weatherDays")
+    weather_by_date = {
+        str(item.get("date")): item
+        for item in (weather_days if isinstance(weather_days, list) else [])
+        if isinstance(item, dict) and item.get("date") is not None
+    }
+
+    profile = _derive_plane_profile(plane_id)
+    model_payload = _load_feature_model()
+    model_days = [
+        _build_scenario_day(
+            plane_id=plane_id,
+            date_iso=date_iso,
+            profile=profile,
+            model_payload=model_payload,
+            mission_template=mission_template,
+            charge_policy=charge_policy,
+            ops_demand=ops_demand if isinstance(ops_demand, dict) else None,
+            weather_day=weather_by_date.get(date_iso),
+        )
+        for date_iso in _daterange(start_date, end_date)
+    ]
+
+    return {
+        "planeId": plane_id,
+        "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "startDate": start_date,
+        "endDate": end_date,
+        "assumptions": [
+            "This recommendation engine is advisory and battery-life-first, not a dispatch optimizer.",
+            "Daily forecast temperatures are folded into the simulated charge and mission wear estimate.",
+            "Waiting longer at high SOC before departure adds an explicit storage-wear penalty.",
+            "Flights per day are modeled as repeated missions on the same aircraft and day.",
+        ],
+        "modelDays": model_days,
+    }
+
+
 def _build_month_model_payload(
     plane_id: str,
     month_value: str,
@@ -627,9 +935,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Emit model-backed forecast and recommendation payloads.")
     parser.add_argument("--plane-id", required=True, help="Plane id to load")
     parser.add_argument("--month", help="Emit model-backed recommendation payload for YYYY-MM")
+    parser.add_argument(
+        "--planner-json",
+        help="Emit scenario planner payload from a JSON request body",
+    )
     args = parser.parse_args()
 
-    if args.month:
+    if args.planner_json:
+        request_payload = json.loads(str(args.planner_json))
+        request_payload["planeId"] = str(args.plane_id)
+        payload = _build_scenario_planner_payload(request_payload)
+    elif args.month:
         profile = _derive_plane_profile(str(args.plane_id))
         model_payload = _load_feature_model()
         payload = _build_month_model_payload(str(args.plane_id), str(args.month), profile, model_payload)

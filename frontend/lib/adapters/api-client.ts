@@ -8,7 +8,10 @@ import {
   MissionGameBaselineResponseSchema,
   MissionGameEvaluateResponseSchema,
   MissionGameInput,
+  PlannerRequest,
   PlaneHealthResponseSchema,
+  PlannerRequestSchema,
+  PlannerResponseSchema,
   PlanesResponseSchema,
   PredictionsResponseSchema,
   RecommendationsResponseSchema,
@@ -85,6 +88,11 @@ export function getPlaneRecommendations(planeId: string, month: string) {
     `/api/v1/planes/${planeId}/recommendations?month=${month}`,
     RecommendationsResponseSchema
   );
+}
+
+export function runPlanner(input: PlannerRequest) {
+  const body = PlannerRequestSchema.parse(input);
+  return postAndParse("/api/v1/planner", body, PlannerResponseSchema);
 }
 
 export function getWeather(airport: string, start: string, end: string) {
