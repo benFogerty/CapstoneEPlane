@@ -91,6 +91,7 @@ def save_short_term_forecast() -> Path:
     best_df = pd.read_csv(base / "best_models_by_horizon.csv")
     best_df = best_df.copy()
     best_df["horizon"] = best_df["target"].str.extract(r"(\d+)").astype(int)
+    metric_col = "backtest_mean_level_mae" if "backtest_mean_level_mae" in best_df.columns else "level_mae"
     best_df = best_df.sort_values("horizon")
 
     target_name = "latent_flight_5"
@@ -100,7 +101,7 @@ def save_short_term_forecast() -> Path:
     model_col = row["best_model"]
 
     example = pred_df.loc[pred_df["battery_id"].eq(1)].copy()
-    for split_name in ["test", "valid", "train"]:
+    for split_name in ["final_test", "holdout", "train_dev", "test", "valid", "train"]:
         candidate = example.loc[example["split"].eq(split_name)].sort_values("cumulative_flight_count")
         if len(candidate) >= 10:
             example = candidate
@@ -112,18 +113,18 @@ def save_short_term_forecast() -> Path:
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.2))
 
-    axes[0].bar(best_df["horizon"].astype(str), best_df["level_mae"], color="#2563eb", alpha=0.9)
+    axes[0].bar(best_df["horizon"].astype(str), best_df[metric_col], color="#2563eb", alpha=0.9)
     for _, item in best_df.iterrows():
         axes[0].text(
             x=str(item["horizon"]),
-            y=item["level_mae"] + 0.01,
+            y=item[metric_col] + 0.01,
             s=item["best_model"].replace("_with_latent", "").replace("_no_latent", ""),
             rotation=90,
             ha="center",
             va="bottom",
             fontsize=8,
         )
-    axes[0].set_title("Best Validation MAE by Forecast Horizon")
+    axes[0].set_title("Best Backtest MAE by Forecast Horizon")
     axes[0].set_xlabel("Forecast horizon (flights)")
     axes[0].set_ylabel("Level MAE (SOH %)")
 

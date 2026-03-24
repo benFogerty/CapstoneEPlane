@@ -1,92 +1,97 @@
 {
   "latent_flight_1": {
-    "model": "random_forest_with_latent",
+    "model": "lstm_sequence_no_latent_tune3",
     "target": "latent_flight_1",
     "next_col": "next_latent_soh_causal_flight_1_pct",
     "delta_col": "next_latent_delta_flight_1_pct",
     "metrics": {
-      "model": "random_forest_with_latent",
-      "eval_split": "valid",
-      "n": 111,
-      "level_mae": 0.04652738065625079,
-      "level_rmse": 0.07234116144765035,
-      "level_r2": 0.9976100466149025,
-      "delta_mae": 0.04652738065625079,
-      "delta_rmse": 0.07234116144765035,
-      "delta_r2": 0.0862818877871494
+      "level_mae": 0.4378323098598001,
+      "delta_mae": 0.4378323098598001,
+      "backtest_mean_level_mae": 0.1922446980504878,
+      "backtest_std_level_mae": 0.2329466840495299,
+      "backtest_mean_delta_mae": 0.1922446980504878,
+      "final_test_level_mae": 0.4378323098598001,
+      "final_test_delta_mae": 0.4378323098598001,
+      "holdout_level_mae": 0.04825880391779139,
+      "holdout_delta_mae": 0.04825880391779139
     },
-    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_1/best_model/random_forest_with_latent.joblib"
+    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_1/best_model/lstm_sequence_no_latent_tune3.pt",
+    "selection_split": "backtest_valid_mean"
   },
   "latent_flight_5": {
-    "model": "physics_hybrid_with_latent",
+    "model": "lstm_sequence_no_latent_tune0",
     "target": "latent_flight_5",
     "next_col": "next_latent_soh_causal_flight_5_pct",
     "delta_col": "next_latent_delta_flight_5_pct",
     "metrics": {
-      "model": "physics_hybrid_with_latent",
-      "eval_split": "valid",
-      "n": 111,
-      "level_mae": 0.1605417622952371,
-      "level_rmse": 0.20610041997966505,
-      "level_r2": 0.9800676472162508,
-      "delta_mae": 0.1605417622952371,
-      "delta_rmse": 0.20610041997966505,
-      "delta_r2": -0.29925171771015724
+      "level_mae": 1.7974458404263585,
+      "delta_mae": 1.7974458404263585,
+      "backtest_mean_level_mae": 0.6637469014179617,
+      "backtest_std_level_mae": 0.5523848121340854,
+      "backtest_mean_delta_mae": 0.6637469014179617,
+      "final_test_level_mae": 1.7974458404263585,
+      "final_test_delta_mae": 1.7974458404263585,
+      "holdout_level_mae": 0.2441307887846147,
+      "holdout_delta_mae": 0.2441307887846147
     },
-    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_5/best_model/physics_hybrid_with_latent.pt"
+    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_5/best_model/lstm_sequence_no_latent_tune0.pt",
+    "selection_split": "backtest_valid_mean"
   },
   "latent_flight_10": {
-    "model": "physics_hybrid_with_latent",
+    "model": "gru_sequence_with_latent_tune0",
     "target": "latent_flight_10",
     "next_col": "next_latent_soh_causal_flight_10_pct",
     "delta_col": "next_latent_delta_flight_10_pct",
     "metrics": {
-      "model": "physics_hybrid_with_latent",
-      "eval_split": "valid",
-      "n": 111,
-      "level_mae": 0.23250282529659266,
-      "level_rmse": 0.3092355330956362,
-      "level_r2": 0.95440076480243,
-      "delta_mae": 0.23250282529659266,
-      "delta_rmse": 0.3092355330956362,
-      "delta_r2": -0.5942222450110011
+      "level_mae": 4.137446927378683,
+      "delta_mae": 4.137446927378683,
+      "backtest_mean_level_mae": 1.1402889134591163,
+      "backtest_std_level_mae": 0.07768048910621268,
+      "backtest_mean_delta_mae": 1.1402889134591163,
+      "final_test_level_mae": 4.137446927378683,
+      "final_test_delta_mae": 4.137446927378683,
+      "holdout_level_mae": 13.073941523120345,
+      "holdout_delta_mae": 13.073941523120345
     },
-    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_10/best_model/physics_hybrid_with_latent.pt"
+    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_10/best_model/gru_sequence_with_latent_tune0.pt",
+    "selection_split": "backtest_valid_mean"
   },
   "latent_flight_15": {
-    "model": "gru_sequence_no_latent",
+    "model": "gru_sequence_with_latent_tune1",
     "target": "latent_flight_15",
     "next_col": "next_latent_soh_causal_flight_15_pct",
     "delta_col": "next_latent_delta_flight_15_pct",
     "metrics": {
-      "model": "gru_sequence_no_latent",
-      "eval_split": "valid",
-      "n": 111,
-      "level_mae": 0.30411514798137645,
-      "level_rmse": 0.3738935921188568,
-      "level_r2": 0.9353150624223361,
-      "delta_mae": 0.30411514798137645,
-      "delta_rmse": 0.3738935921188568,
-      "delta_r2": -2.435674108315359
+      "level_mae": 3.810955512363979,
+      "delta_mae": 3.810955512363979,
+      "backtest_mean_level_mae": 1.1653677109568659,
+      "backtest_std_level_mae": 0.04600415016669053,
+      "backtest_mean_delta_mae": 1.1653677109568659,
+      "final_test_level_mae": 3.810955512363979,
+      "final_test_delta_mae": 3.810955512363979,
+      "holdout_level_mae": null,
+      "holdout_delta_mae": null
     },
-    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_15/best_model/gru_sequence_no_latent.pt"
+    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_15/best_model/gru_sequence_with_latent_tune1.pt",
+    "selection_split": "backtest_valid_mean"
   },
   "latent_flight_20": {
-    "model": "elastic_with_latent",
+    "model": "gru_sequence_with_latent_tune2",
     "target": "latent_flight_20",
     "next_col": "next_latent_soh_causal_flight_20_pct",
     "delta_col": "next_latent_delta_flight_20_pct",
     "metrics": {
-      "model": "elastic_with_latent",
-      "eval_split": "valid",
-      "n": 111,
-      "level_mae": 0.23171609972594942,
-      "level_rmse": 0.28024196055739503,
-      "level_r2": 0.9634799877488174,
-      "delta_mae": 0.23171609972594942,
-      "delta_rmse": 0.28024196055739503,
-      "delta_r2": -0.4333391970790177
+      "level_mae": 4.279529314765658,
+      "delta_mae": 4.279529314765658,
+      "backtest_mean_level_mae": 1.1868053030471548,
+      "backtest_std_level_mae": 0.04781291692671452,
+      "backtest_mean_delta_mae": 1.1868053030471548,
+      "final_test_level_mae": 4.279529314765658,
+      "final_test_delta_mae": 4.279529314765658,
+      "holdout_level_mae": null,
+      "holdout_delta_mae": null
     },
-    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_20/best_model/elastic_with_latent.joblib"
+    "model_path": "/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/soh_forecast/output/multihorizon_runner_plane_166/latent_flight_20/best_model/gru_sequence_with_latent_tune2.pt",
+    "selection_split": "backtest_valid_mean"
   }
 }

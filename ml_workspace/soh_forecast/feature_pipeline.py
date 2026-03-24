@@ -193,6 +193,8 @@ DEFAULT_MULTI_HORIZON_CONFIGS: tuple[dict[str, object], ...] = (
     {"kind": "flight", "value": 20, "label": "flight_20", "title": "Next 20 flights"},
 )
 
+EVENT_GROUP_KEY_COLS = ["plane_id", "flight_id", "event_datetime"]
+
 
 def ensure_latent_outputs(
     repo_root: Path,
@@ -620,6 +622,121 @@ def time_split(df: pd.DataFrame, train_frac: float, valid_frac: float) -> tuple[
     if n_train + n_valid >= n:
         n_valid = max(1, n - n_train - 1) if n >= 3 else max(0, n - n_train)
     return ordered.iloc[:n_train].copy(), ordered.iloc[n_train : n_train + n_valid].copy(), ordered.iloc[n_train + n_valid :].copy()
+
+
+def _event_group_frame(df: pd.DataFrame) -> pd.DataFrame:
+    group_df = df[EVENT_GROUP_KEY_COLS].drop_duplicates().copy()
+    return group_df.sort_values(["event_datetime", "flight_id"]).reset_index(drop=True)
+
+
+def _walk_forward_boundaries(
+    total_groups: int,
+    final_test_frac: float,
+    backtest_folds: int,
+    fold_valid_frac: float,
+) -> tuple[int, int, list[dict[str, int]]]:
+    if total_groups < 4:
+        raise ValueError("Need at least 4 eligible event groups for walk-forward benchmarking")
+    if not (0.0 < final_test_frac < 1.0):
+        raise ValueError("final_test_frac must be between 0 and 1")
+    if not (0.0 < fold_valid_frac < 1.0):
+        raise ValueError("fold_valid_frac must be between 0 and 1")
+    if backtest_folds < 1:
+        raise ValueError("backtest_folds must be at least 1")
+
+    final_test_count = max(1, int(round(total_groups * final_test_frac)))
+    dev_count = total_groups - final_test_count
+    valid_count = max(1, int(round(total_groups * fold_valid_frac)))
+    initial_train_count = dev_count - backtest_folds * valid_count
+    if initial_train_count < 1:
+        raise ValueError(
+            "Not enough eligible event groups for the requested walk-forward layout. "
+            f"groups={total_groups}, final_test_count={final_test_count}, valid_count={valid_count}, folds={backtest_folds}"
+        )
+
+    folds: list[dict[str, int]] = []
+    train_end = initial_train_count
+    for fold_id in range(1, backtest_folds + 1):
+        valid_start = train_end
+        valid_end = valid_start + valid_count
+        if valid_end > dev_count:
+            raise ValueError("Walk-forward validation windows exceed development range")
+        folds.append(
+            {
+                "fold_id": fold_id,
+                "train_end": train_end,
+                "valid_start": valid_start,
+                "valid_end": valid_end,
+            }
+        )
+        train_end = valid_end
+
+    return final_test_count, valid_count, folds
+
+
+def assign_walk_forward_splits(
+    predictive_df: pd.DataFrame,
+    primary_plane: str,
+    holdout_plane: str | None,
+    final_test_frac: float = 0.15,
+    backtest_folds: int = 3,
+    fold_valid_frac: float = 0.10,
+    required_target_cols: list[str] | None = None,
+) -> pd.DataFrame:
+    required_target_cols = required_target_cols or []
+    usable = predictive_df.copy()
+    for col in required_target_cols:
+        usable = usable.loc[usable[col].notna()].copy()
+
+    usable["final_split"] = "unused"
+    usable["refit_role"] = "unused"
+    for fold_id in range(1, backtest_folds + 1):
+        usable[f"backtest_fold_{fold_id}_role"] = "unused"
+
+    primary_rows = usable.loc[usable["plane_id"].eq(primary_plane)].copy()
+    group_df = _event_group_frame(primary_rows)
+    final_test_count, _valid_count, folds = _walk_forward_boundaries(
+        total_groups=len(group_df),
+        final_test_frac=final_test_frac,
+        backtest_folds=backtest_folds,
+        fold_valid_frac=fold_valid_frac,
+    )
+    dev_count = len(group_df) - final_test_count
+
+    group_df["final_split"] = "train_dev"
+    group_df.loc[group_df.index >= dev_count, "final_split"] = "final_test"
+
+    group_df["refit_role"] = "train"
+    last_fold = folds[-1]
+    group_df.loc[group_df.index >= dev_count, "refit_role"] = "test"
+    group_df.loc[(group_df.index >= last_fold["valid_start"]) & (group_df.index < last_fold["valid_end"]), "refit_role"] = "valid"
+
+    for fold in folds:
+        col = f"backtest_fold_{fold['fold_id']}_role"
+        group_df[col] = "unused"
+        group_df.loc[group_df.index < fold["train_end"], col] = "train"
+        group_df.loc[(group_df.index >= fold["valid_start"]) & (group_df.index < fold["valid_end"]), col] = "valid"
+
+    assignment_cols = ["final_split", "refit_role", *[f"backtest_fold_{fold['fold_id']}_role" for fold in folds]]
+    usable = usable.merge(group_df[EVENT_GROUP_KEY_COLS + assignment_cols], on=EVENT_GROUP_KEY_COLS, how="left", suffixes=("", "_group"))
+    for col in assignment_cols:
+        group_col = f"{col}_group"
+        if group_col in usable.columns:
+            usable[col] = usable[group_col].fillna(usable[col])
+            usable = usable.drop(columns=[group_col])
+
+    if holdout_plane:
+        holdout_mask = usable["plane_id"].eq(holdout_plane)
+        usable.loc[holdout_mask, "final_split"] = "holdout"
+        usable.loc[holdout_mask, "refit_role"] = "holdout"
+
+    return usable
+
+
+def split_frames_from_column(df: pd.DataFrame, split_col: str) -> SplitFrames:
+    working = df.copy()
+    working["split"] = working[split_col].fillna("unused")
+    return split_frames_from_assigned(working)
 
 
 def build_target_frame(

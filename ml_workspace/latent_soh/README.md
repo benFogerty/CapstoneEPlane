@@ -55,9 +55,7 @@ behaviorally reasonable, but they do not determine the ranking. The best candida
 the canonical `latent_soh_event_table.csv`. The canonical SOH series is `latent_soh_smooth_pct` with
 uncertainty `latent_soh_smooth_std_pct`.
 
-The notebook [latent_soh_method_comparison.ipynb](/Users/benfogerty/Desktop/EPlaneCapstone/CapstoneEPlane/ml_workspace/latent_soh/latent_soh_method_comparison.ipynb) runs the sweep, ranks candidates, and rebuilds the final outputs.
-
-Selected parameters from the latest sweep:
+Method-search sweeps are intentionally not committed. The current forecasting pipeline uses:
 - `rt_profile = current`
 - `q_day_sigma_pct = 0.10`
 

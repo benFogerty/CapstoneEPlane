@@ -114,6 +114,125 @@ def build_full_and_common_metrics(
     return full_available_metrics, common_subset_metrics, common_subset
 
 
+def summarize_backtest_fold_metrics(fold_metrics_df: pd.DataFrame) -> pd.DataFrame:
+    if fold_metrics_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "model",
+                "backtest_folds",
+                "backtest_mean_level_mae",
+                "backtest_std_level_mae",
+                "backtest_mean_delta_mae",
+                "backtest_mean_level_rmse",
+                "backtest_mean_delta_rmse",
+                "backtest_mean_level_r2",
+                "backtest_mean_delta_r2",
+                "backtest_total_rows",
+            ]
+        )
+    valid_rows = fold_metrics_df.loc[fold_metrics_df["eval_split"].eq("valid")].copy()
+    if valid_rows.empty:
+        return pd.DataFrame()
+    summary = (
+        valid_rows.groupby("model", as_index=False)
+        .agg(
+            backtest_folds=("fold_id", "nunique"),
+            backtest_mean_level_mae=("level_mae", "mean"),
+            backtest_std_level_mae=("level_mae", "std"),
+            backtest_mean_delta_mae=("delta_mae", "mean"),
+            backtest_mean_level_rmse=("level_rmse", "mean"),
+            backtest_mean_delta_rmse=("delta_rmse", "mean"),
+            backtest_mean_level_r2=("level_r2", "mean"),
+            backtest_mean_delta_r2=("delta_r2", "mean"),
+            backtest_total_rows=("n", "sum"),
+        )
+        .sort_values(
+            ["backtest_mean_level_mae", "backtest_std_level_mae", "backtest_mean_delta_mae", "model"],
+            ascending=[True, True, True, True],
+        )
+        .reset_index(drop=True)
+    )
+    summary["backtest_std_level_mae"] = summary["backtest_std_level_mae"].fillna(0.0)
+    return summary
+
+
+def select_backtest_winner(backtest_summary: pd.DataFrame) -> dict[str, object] | None:
+    if backtest_summary.empty:
+        return None
+    best = backtest_summary.sort_values(
+        ["backtest_mean_level_mae", "backtest_std_level_mae", "backtest_mean_delta_mae", "model"],
+        ascending=[True, True, True, True],
+    ).iloc[0]
+    return best.to_dict()
+
+
+def rename_prediction_splits(
+    prediction_df: pd.DataFrame,
+    split_map: dict[str, str],
+) -> pd.DataFrame:
+    renamed = prediction_df.copy()
+    renamed["split"] = renamed["split"].replace(split_map)
+    return renamed
+
+
+def rename_metric_splits(
+    metrics_df: pd.DataFrame,
+    split_map: dict[str, str],
+) -> pd.DataFrame:
+    renamed = metrics_df.copy()
+    renamed["eval_split"] = renamed["eval_split"].replace(split_map)
+    return renamed
+
+
+def build_winner_summary_row(
+    target_name: str,
+    winner_row: dict[str, object] | None,
+    final_metrics: pd.DataFrame,
+    model_path: str | None,
+) -> dict[str, object]:
+    row: dict[str, object] = {"target": target_name, "best_model_path": model_path}
+    if winner_row:
+        row["best_model"] = winner_row.get("model")
+        row.update(winner_row)
+    else:
+        row["best_model"] = None
+        return row
+
+    final_test = final_metrics.loc[final_metrics["eval_split"].eq("final_test")]
+    holdout = final_metrics.loc[final_metrics["eval_split"].eq("holdout")]
+    if len(final_test):
+        final_test_row = final_test.iloc[0].to_dict()
+        for key, value in final_test_row.items():
+            if key in {"model", "eval_split"}:
+                continue
+            row[f"final_test_{key}"] = value
+    if len(holdout):
+        holdout_row = holdout.iloc[0].to_dict()
+        for key, value in holdout_row.items():
+            if key in {"model", "eval_split"}:
+                continue
+            row[f"holdout_{key}"] = value
+    row["selection_split"] = "backtest_valid_mean"
+    row["eval_split"] = "backtest"
+    row["level_mae"] = row.get("backtest_mean_level_mae")
+    row["delta_mae"] = row.get("backtest_mean_delta_mae")
+    return row
+
+
+def build_final_and_holdout_metrics(
+    benchmark_df: pd.DataFrame,
+    target_spec: TargetSpec,
+    model_names: str | list[str],
+) -> pd.DataFrame:
+    model_cols = [model_names] if isinstance(model_names, str) else list(model_names)
+    return concat_frames(
+        [
+            comparison_metrics(benchmark_df, target_spec, model_cols, "final_test"),
+            comparison_metrics(benchmark_df, target_spec, model_cols, "holdout"),
+        ]
+    )
+
+
 def summarize_feature_correlation(
     predictive_df: pd.DataFrame,
     feature_cols: list[str],

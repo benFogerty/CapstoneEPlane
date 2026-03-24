@@ -5,7 +5,15 @@ import pandas as pd
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
-from ml_workspace.soh_forecast.common import ModelArtifacts, SplitFrames, TargetSpec, fit_best_linear, make_feature_frame, metric_table
+from ml_workspace.soh_forecast.common import (
+    ModelArtifacts,
+    SplitFrames,
+    TargetSpec,
+    build_metric_frame,
+    build_prediction_frame,
+    fit_best_linear,
+    make_feature_frame,
+)
 
 
 def train_ridge_delta(
@@ -40,7 +48,7 @@ def train_ridge_delta(
     scaler = StandardScaler()
     train_x_s = scaler.fit_transform(train_x)
     valid_x_s = scaler.transform(valid_x)
-    test_x_s = scaler.transform(test_x)
+    test_x_s = scaler.transform(test_x) if not split_frames.test.empty else np.empty((0, train_x.shape[1]))
     holdout_x_s = scaler.transform(holdout_x) if not split_frames.holdout.empty else np.empty((0, train_x.shape[1]))
 
     ridge_alphas = alphas or [0.01, 0.1, 1.0, 10.0, 100.0]
@@ -55,36 +63,17 @@ def train_ridge_delta(
 
     pred_train_level = current_train + model.predict(train_x_s)
     pred_valid_level = current_valid + model.predict(valid_x_s)
-    pred_test_level = current_test + model.predict(test_x_s)
+    pred_test_level = current_test + model.predict(test_x_s) if not split_frames.test.empty else np.array([], dtype=float)
     pred_holdout_level = current_holdout + model.predict(holdout_x_s) if not split_frames.holdout.empty else np.array([], dtype=float)
 
-    predictions = pd.concat(
-        [
-            pd.DataFrame({"event_id": split_frames.train["event_id"], "split": "train", model_name: pred_train_level}),
-            pd.DataFrame({"event_id": split_frames.valid["event_id"], "split": "valid", model_name: pred_valid_level}),
-            pd.DataFrame({"event_id": split_frames.test["event_id"], "split": "test", model_name: pred_test_level}),
-            pd.DataFrame({"event_id": split_frames.holdout["event_id"], "split": "holdout", model_name: pred_holdout_level})
-            if not split_frames.holdout.empty
-            else pd.DataFrame(columns=["event_id", "split", model_name]),
-        ],
-        ignore_index=True,
-    )
-
-    metrics = pd.DataFrame(
-        [
-            {"model": model_name, "eval_split": "train", **metric_table(y_train_level, pred_train_level, current_train)},
-            {"model": model_name, "eval_split": "valid", **metric_table(y_valid_level, pred_valid_level, current_valid)},
-            {"model": model_name, "eval_split": "test", **metric_table(y_test_level, pred_test_level, current_test)},
-        ]
-    )
-    if not split_frames.holdout.empty:
-        metrics = pd.concat(
-            [
-                metrics,
-                pd.DataFrame([{"model": model_name, "eval_split": "holdout", **metric_table(y_holdout_level, pred_holdout_level, current_holdout)}]),
-            ],
-            ignore_index=True,
-        )
+    split_predictions = {
+        "train": pred_train_level,
+        "valid": pred_valid_level,
+        "test": pred_test_level,
+        "holdout": pred_holdout_level,
+    }
+    predictions = build_prediction_frame(split_frames, model_name, split_predictions)
+    metrics = build_metric_frame(split_frames, target_spec, model_name, split_predictions)
 
     return ModelArtifacts(
         model_name=model_name,

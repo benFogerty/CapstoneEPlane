@@ -124,3 +124,51 @@ def metric_table(y_true_level: np.ndarray, y_pred_level: np.ndarray, current_lev
 def concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     valid_frames = [frame for frame in frames if frame is not None and not frame.empty]
     return pd.concat(valid_frames, ignore_index=True) if valid_frames else pd.DataFrame()
+
+
+def split_frame_items(split_frames: SplitFrames) -> list[tuple[str, pd.DataFrame]]:
+    return [
+        ("train", split_frames.train),
+        ("valid", split_frames.valid),
+        ("test", split_frames.test),
+        ("holdout", split_frames.holdout),
+    ]
+
+
+def build_prediction_frame(
+    split_frames: SplitFrames,
+    model_name: str,
+    split_predictions: dict[str, np.ndarray],
+) -> pd.DataFrame:
+    parts = []
+    for split_name, frame in split_frame_items(split_frames):
+        preds = split_predictions.get(split_name)
+        if frame.empty or preds is None or len(preds) == 0:
+            continue
+        parts.append(pd.DataFrame({"event_id": frame["event_id"], "split": split_name, model_name: preds}))
+    return concat_frames(parts)
+
+
+def build_metric_frame(
+    split_frames: SplitFrames,
+    target_spec: TargetSpec,
+    model_name: str,
+    split_predictions: dict[str, np.ndarray],
+) -> pd.DataFrame:
+    rows = []
+    for split_name, frame in split_frame_items(split_frames):
+        preds = split_predictions.get(split_name)
+        if frame.empty or preds is None or len(preds) == 0:
+            continue
+        rows.append(
+            {
+                "model": model_name,
+                "eval_split": split_name,
+                **metric_table(
+                    frame[target_spec.next_col].to_numpy(dtype=float),
+                    np.asarray(preds, dtype=float),
+                    frame[target_spec.current_col].to_numpy(dtype=float),
+                ),
+            }
+        )
+    return pd.DataFrame(rows)

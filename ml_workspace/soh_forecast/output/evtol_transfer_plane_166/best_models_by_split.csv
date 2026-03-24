@@ -1,3 +1,0 @@
-split,model,training_source,level_mae,delta_mae,level_rmse,delta_rmse
-test,scratch_nn_same_features,plane_only,0.5013310144415728,0.5013310144415728,0.7955448372591853,0.7955448372591853
-val,scratch_nn_same_features,plane_only,0.0689676776550497,0.0689676776550497,0.09545177752302363,0.09545177752302363

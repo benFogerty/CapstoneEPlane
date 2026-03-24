@@ -266,7 +266,7 @@ def _estimate_model_per_flight(
             continue
 
         selected = plane_df
-        for split_name in ("holdout", "test", "valid", "train"):
+        for split_name in ("holdout", "final_test", "train_dev", "test", "valid", "train"):
             split_df = plane_df.loc[plane_df["split"].eq(split_name)].copy()
             if len(split_df) >= 5:
                 selected = split_df
@@ -286,10 +286,15 @@ def _estimate_model_per_flight(
             continue
 
         metrics = best.get("metrics", {})
-        delta_mae = _safe_float(
-            metrics.get("delta_mae", np.nan) if isinstance(metrics, dict) else np.nan,
-            np.nan,
-        )
+        delta_mae = np.nan
+        if isinstance(metrics, dict):
+            delta_mae = _safe_float(
+                metrics.get(
+                    "final_test_delta_mae",
+                    metrics.get("backtest_mean_delta_mae", metrics.get("delta_mae", np.nan)),
+                ),
+                np.nan,
+            )
         if np.isfinite(delta_mae) and delta_mae > 0:
             weight = float(1.0 / delta_mae)
         else:

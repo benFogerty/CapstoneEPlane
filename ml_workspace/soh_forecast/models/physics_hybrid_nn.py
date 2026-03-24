@@ -265,7 +265,7 @@ def _scale_context_frames(
     scaler = StandardScaler()
     train_scaled = scaler.fit_transform(train_ctx)
     valid_scaled = scaler.transform(valid_ctx)
-    test_scaled = scaler.transform(test_ctx)
+    test_scaled = scaler.transform(test_ctx) if not test_df.empty else np.empty((0, train_ctx.shape[1]), dtype=float)
     holdout_scaled = scaler.transform(holdout_ctx) if not holdout_df.empty else np.empty((0, train_ctx.shape[1]), dtype=float)
 
     return train_scaled, valid_scaled, test_scaled, holdout_scaled, context_cols, scaler, train_medians
@@ -373,7 +373,7 @@ def train_physics_hybrid_nn(
     feature_scaler = StandardScaler()
     train_x_s = feature_scaler.fit_transform(train_x)
     valid_x_s = feature_scaler.transform(valid_x)
-    test_x_s = feature_scaler.transform(test_x)
+    test_x_s = feature_scaler.transform(test_x) if not test_df.empty else np.empty((0, train_x.shape[1]), dtype=float)
     holdout_x_s = feature_scaler.transform(holdout_x) if not holdout_df.empty else np.empty((0, train_x.shape[1]), dtype=float)
 
     (

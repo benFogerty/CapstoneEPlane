@@ -1,3 +1,0 @@
-battery_id,start_progress,total_life_flights_from_start,end_progress_observed,fitted_mae,flights_remaining_to_zero,last_observed_soh_pct
-1,0.0,1295.059,0.14439496578920344,1.8103506761383708,1108.059,57.54232883832993
-2,0.0,1632.538,0.11454557259922893,1.6285106846159039,1445.538,60.5588813036762

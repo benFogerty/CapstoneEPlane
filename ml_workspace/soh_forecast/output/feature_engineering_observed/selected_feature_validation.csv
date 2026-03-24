@@ -1,3 +1,0 @@
-feature_set,n_features,test_level_mae,test_level_rmse
-baseline_raw_operating_physics_static,65,1.6913150437643931,4.156701769864848
-selected_shortlist,36,1.7098735368534885,3.8032800147737915

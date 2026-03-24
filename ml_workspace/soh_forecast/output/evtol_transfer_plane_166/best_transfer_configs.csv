@@ -1,3 +1,0 @@
-model_family,trial,pretrain_val_mae,valid_level_mae,test_level_mae,plane_weight,replay_fraction,replay_weight,hidden_dim,physics_hidden_dim,degradation_weight,residual_weight,smoothness_weight,freeze_feature_backbone,step_weight,monotonic_weight,initial_weight
-transfer_physics_hybrid,6,2.012607128064028,0.17531175682650943,0.5225668240181811,12.0,0.1,0.05,128,64.0,0.45,0.02,0.01,False,,,
-transfer_physics_pinn,4,2.6682699037284885,0.18882051059462487,0.6245145808668536,10.0,0.1,0.05,128,,,0.45,,,1.75,0.12,0.2
