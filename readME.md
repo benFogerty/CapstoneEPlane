@@ -2,7 +2,12 @@
 
 Battery-health intelligence and operations support for electric aircraft.
 
-This repository combines telemetry processing, latent state-of-health estimation, multi-horizon SOH forecasting, circuit-capacity modeling, and a Next.js dashboard that turns the model outputs into operational views for students and operators.
+This repository combines telemetry processing, latent state-of-health estimation, multi-horizon SOH forecasting, circuit-capacity modeling, and delivery surfaces that turn model outputs into usable operational recommendations and visual explanations.
+
+The models are presented in two ways:
+
+- a dashboard for flight schools and flight planners that converts model outputs into usable recommendations and optimization support
+- a flight demo that visualizes how telemetry is collected and how the models make predictions based on real flying behavior: [Watch the flight demo](https://drive.google.com/file/d/1GJzkYWT9mOi2u9pxvQJTTjl_-yyXwsSU/view?usp=drive_link)
 
 ## What This Repo Contains
 
@@ -13,6 +18,8 @@ This repository combines telemetry processing, latent state-of-health estimation
 - circuit-capacity and SOC-rate models in `ml_workspace/circuit_capacity/`
 - JSON snapshot export code in `ml_workspace/integration/`
 - a frontend app in `frontend/`
+- a dashboard experience for operational planning and recommendation workflows
+- a flight demo for telemetry and prediction visualization
 
 ## Repository Layout
 
