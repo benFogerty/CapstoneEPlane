@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -24,60 +25,44 @@ def save_latent_smoothing_and_estimation() -> Path:
     df = df.loc[df["battery_id"].eq(1)].sort_values("event_datetime").copy()
     flight_df = df.loc[df["event_type"].eq("flight")].copy()
 
-    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    fig, ax = plt.subplots(1, 1, figsize=(12, 5.4))
 
-    if "flight_index" in flight_df.columns:
-        x = flight_df["flight_index"]
-    elif "cumulative_flight_count" in flight_df.columns:
-        x = flight_df["cumulative_flight_count"]
-    else:
-        x = pd.Series(range(len(flight_df)), index=flight_df.index, name="flight_index")
+    x = flight_df["event_datetime"]
 
-    axes[0].plot(
+    ax.plot(
         x,
         flight_df["observed_soh_pct"],
-        color="#94a3b8",
-        linewidth=1.0,
-        alpha=0.85,
-        label="Observed SOH (flight events)",
+        color="#64748b",
+        linewidth=1.2,
+        alpha=0.6,
+        zorder=1,
     )
-    axes[0].plot(
+    ax.scatter(
         x,
-        flight_df["latent_soh_filter_pct"],
-        color="#1d4ed8",
-        linewidth=1.8,
-        label="Causal latent SOH",
+        flight_df["observed_soh_pct"],
+        s=28,
+        color="#475569",
+        edgecolors="#f8fafc",
+        linewidths=0.6,
+        alpha=0.95,
+        zorder=2,
+        label="Observed raw SOH (flight events)",
     )
-    axes[0].plot(
+    ax.plot(
         x,
         flight_df["latent_soh_smooth_pct"],
         color="#0f766e",
-        linewidth=2.0,
-        label="RTS smoothed latent SOH",
+        linewidth=2.8,
+        zorder=3,
+        label="Kalman-smoothed latent SOH",
     )
-    axes[0].set_title("Plane 166 Battery 1: Flight-Only Observed vs Latent SOH")
-    axes[0].set_ylabel("SOH (%)")
-    axes[0].legend(loc="best")
-
-    axes[1].scatter(
-        x,
-        flight_df["measurement_sigma_pct"],
-        s=14,
-        alpha=0.75,
-        color="#2563eb",
-        label="Flight-event measurement sigma",
-    )
-    axes[1].plot(
-        x,
-        flight_df["measurement_sigma_pct"],
-        color="#111827",
-        linewidth=1.0,
-        alpha=0.55,
-    )
-    axes[1].set_title("Condition-Aware Measurement Uncertainty on Flight Events")
-    axes[1].set_ylabel("Measurement sigma (%)")
-    axes[1].set_xlabel("Flight index")
-    axes[1].legend(loc="best")
+    ax.set_title("Plane 166 Battery 1: Raw Flight SOH vs Kalman-Smoothed Latent SOH")
+    locator = mdates.AutoDateLocator()
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    ax.set_xlabel("Event date")
+    ax.set_ylabel("SOH (%)")
+    ax.legend(loc="best")
 
     plt.tight_layout()
     out = FIG_DIR / "poster_latent_smoothing_estimation.png"
